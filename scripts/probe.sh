@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# One-off probe of ORC AQUARIUS WebPortal from a GitHub runner.
+# One-off probe of ORC AQUARIUS WebPortal from a GitHub runner; outputs land in probe/.
 set -u
 B=https://envdata.orc.govt.nz/AQWebPortal
 mkdir -p probe && cd probe
 UA='Mozilla/5.0 lake-hawea-levels'
-get() { echo "=== $1"; curl -sS -L -m 60 -A "$UA" -c jar -b jar -o "$2" -w 'HTTP %{http_code} %{size_download}B %{content_type} -> %{url_effective}\n' "$1"; }
+get() { echo "=== $1" >> log.txt; curl -sS -L -m 60 -A "$UA" -c jar -b jar -o "$2" -w 'HTTP %{http_code} %{size_download}B %{content_type} -> %{url_effective}\n' "$1" >> log.txt 2>&1; }
 get "$B/Disclaimer" disc.html
-echo "--- disclaimer forms"; grep -iE '<form|<input|<button|action=' disc.html | head -30
-get "$B/bundles/aqPortal.js?v=dnptTFHSJzabrnoP9vs6HlE-wUk" portal.js
-echo "--- endpoints in portal.js"; grep -oE '"/?(Data|Export|Disclaimer|api)[A-Za-z0-9/_{}.-]*"|[A-Za-z]+Url *[:=] *"[^"]*"' portal.js | sort -u | head -150
-echo "--- export snippets"; grep -oE '.{0,120}Export/[A-Za-z]+.{0,200}' portal.js | head -20
-echo "--- disclaimer snippets"; grep -oE '.{0,150}[Dd]isclaimer.{0,150}' portal.js | head -10
+curl -sS -L -m 60 -A "$UA" -c jar -b jar -o accept.html -w 'ACCEPT HTTP %{http_code} -> %{url_effective}\n' --data-urlencode "returnUrl=/AQWebPortal/Data/Location/Summary/Location/EM507/Interval/Latest" "$B/AcceptDisclaimer" >> log.txt 2>&1
+get "$B/Data/Location/Summary/Location/EM507/Interval/Latest" summary.html
+get "$B/Data/Location/Dashboard/480/Location/EM507/Interval/Latest" dash.html
+get "$B/bundles/aqPortalMin.js?v=PEUT6IZnvJiBqme68jcW-Ue7hHg" portalmin.js
+get "$B/bundles/admin.js?v=oV0emqwl3o0tUfG78_xEYr0WX8k" admin.js
+cp jar jar.txt
