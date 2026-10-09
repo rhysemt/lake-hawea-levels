@@ -112,7 +112,7 @@
     <h3>Lake level</h3>
     <div id="seasonal" class="chart"><div class="status">Loading data…</div></div>
     <h3>Hāwea River flow below the dam</h3>
-    <p class="note">Measured at Camphill Bridge. Flow records start in 1968. Dashed lines mark the consented controlled outflow of 10 to 200 m³/s (60 m³/s maximum from September to January). Floods can exceed this.</p>
+    <p class="note">Measured at Camphill Bridge, just below the dam. Lines show a 7-day average so the pattern of releases is easier to compare; the full daily record is below. Records start in 1968. Dashed lines mark the consented controlled outflow of 10 to 200 m³/s.</p>
     <div id="seasonalFlow" class="chart flow"></div>
   </section>
 
@@ -143,7 +143,7 @@
       seasonal: "seasonal", timeline: "timeline",
       refs: [[346.0, "Max operating 346.0 m"], [338.0, "Min operating 338.0 m"]] },
     flow: { file: "data/hawea_flow_daily.csv", unit: "m³/s", dp: 0, axis: "Flow (m³/s)",
-      seasonal: "seasonalFlow", timeline: "timelineFlow",
+      seasonal: "seasonalFlow", timeline: "timelineFlow", smoothDays: 7,
       refs: [[200, "Consented max 200 m³/s"], [10, "Consented min 10 m³/s"]] },
   };
   let years = [], thisYear, selected = new Set();
@@ -178,7 +178,7 @@
       ["Latest daily level", m(last.v), fmtDate(last.d)],
       ["Change over 7 days", wk != null ? signed(last.v - wk) : "–", "since " + fmtDate(shift(last.d, -7))],
       ["Same day last year", ly != null ? m(ly) : "–", ly != null ? signed(last.v - ly) + " this year vs last" : ""],
-      ["Room in operating range", m(last.v - 338.0) + " above min", m(346.0 - last.v) + " below max"],
+      ["Above minimum operating level", m(last.v - 338.0), m(346.0 - last.v) + " below the maximum"],
       ["River flow below dam", Math.round(lastF.v) + " m³/s", fmtDate(lastF.d) + (lyF != null ? ", " + Math.round(lyF) + " m³/s a year ago" : "")],
     ];
     document.getElementById("tiles").innerHTML = t.map(([k, v, n]) =>
@@ -239,7 +239,7 @@
       shapes: s.refs.map(([y]) => ({ type: "line", xref: "paper", x0: 0, x1: 1, y0: y, y1: y,
         line: { color: css("--ref"), width: 1, dash: "dash" }, layer: "below" })),
       annotations: s.refs.map(([y, t]) => ({ xref: "paper", x: 0.005, xanchor: "left", y, yanchor: "bottom",
-        text: t, showarrow: false, font: { size: 11, color: css("--text-muted") } })),
+        text: t, showarrow: false, bgcolor: css("--surface-1"), font: { size: 11, color: css("--text-muted") } })),
     };
   }
 
@@ -251,12 +251,23 @@
   });
   const config = { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
 
+  // Centred moving average over calendar days (gaps shrink the window rather than bridging it).
+  function smooth(s, pts, days) {
+    if (!days) return pts.map((r) => r.v);
+    const h = Math.floor(days / 2);
+    return pts.map((r) => {
+      let sum = 0, n = 0;
+      for (let k = -h; k <= h; k++) { const v = s.lookup[shift(r.d, k)]; if (v != null) { sum += v; n++; } }
+      return sum / n;
+    });
+  }
+
   function yearTrace(s, y, color, width) {
     const pts = s.byYear[y].filter((r) => r.d.slice(5) !== "02-29");
     return { type: "scattergl", mode: "lines", name: String(y),
-      x: pts.map((r) => "2000" + r.d.slice(4)), y: pts.map((r) => r.v),
+      x: pts.map((r) => "2000" + r.d.slice(4)), y: smooth(s, pts, s.smoothDays),
       line: { color, width }, connectgaps: false,
-      hovertemplate: `${y}: %{y:.${s.dp}f} ${s.unit}<extra></extra>` };
+      hovertemplate: `${y}: %{y:.${s.dp}f} ${s.unit}${s.smoothDays ? " (7-day avg)" : ""}<extra></extra>` };
   }
 
   function renderSeasonal(s) {
