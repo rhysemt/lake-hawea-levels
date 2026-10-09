@@ -121,7 +121,7 @@
   </footer>
 </main>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
+<script src="plotly-2.35.2.min.js"></script>
 <script>
 (function () {
   const MIN_OP = 338.0, MAX_OP = 346.0;
@@ -276,6 +276,10 @@
       hovertemplate: "%{x|%-d %b %Y}: %{y:.2f} m<extra></extra>" }], layout, config);
   }
 
+  if (typeof Plotly === "undefined") {
+    document.getElementById("seasonal").innerHTML = '<div class="status">The chart library didn\'t load. Please refresh the page.</div>';
+    return;
+  }
   load().then(() => {
     tiles();
     buildControls();
