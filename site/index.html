@@ -112,7 +112,7 @@
 
   <section class="card">
     <h2>Full record since 1930</h2>
-    <p class="note">The whole history in one line. Drag the slider below the chart to zoom into a period. The lake was raised by the Hāwea control dam in 1958. Readings before the 1980s are sparse.</p>
+    <p class="note">The whole history in one line. Drag the slider below the chart to zoom into a period. The jump around 1960 is the Hāwea control dam raising the lake. Some early years have gaps.</p>
     <div id="timeline" class="chart"></div>
   </section>
 
@@ -244,7 +244,7 @@
     });
     if (selected.has(thisYear)) traces.push(yearTrace(thisYear, css("--current"), 3));
     const layout = Object.assign(baseLayout(), {
-      xaxis: Object.assign(axisStyle(), { type: "date", tickformat: "%b", dtick: "M1", range: ["2000-01-01", "2000-12-31"], hoverformat: "%-d %b" }),
+      xaxis: Object.assign(axisStyle(), { type: "date", tickformat: "%b", dtick: window.innerWidth < 600 ? "M2" : "M1", tickangle: 0, range: ["2000-01-01", "2000-12-31"], hoverformat: "%-d %b" }),
       yaxis: Object.assign(axisStyle(), { title: { text: "Metres above sea level", font: { color: css("--text-secondary"), size: 13 } }, ticksuffix: "" }),
       shapes: refLines(), annotations: refLabels(),
       hovermode: sel.length > 12 ? "closest" : "x unified",
@@ -271,7 +271,7 @@
       yaxis: Object.assign(axisStyle(), { title: { text: "Metres above sea level", font: { color: css("--text-secondary"), size: 13 } }, fixedrange: false }),
       shapes: refLines(), annotations: refLabels(), hovermode: "x",
     });
-    Plotly.react("timeline", [{ type: "scattergl", mode: "lines", name: "Daily level",
+    Plotly.react("timeline", [{ type: "scatter", mode: "lines", name: "Daily level",
       x: rows.map((r) => r.d), y: rows.map((r) => r.v), line: { color: css("--chip-on-bg"), width: 1.5 },
       hovertemplate: "%{x|%-d %b %Y}: %{y:.2f} m<extra></extra>" }], layout, config);
   }
