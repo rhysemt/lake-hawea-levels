@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Lake Hāwea Levels</title>
-<meta name="description" content="Interactive chart of Lake Hāwea water levels by year, updated daily from Otago Regional Council data.">
+<meta name="description" content="Interactive charts of Lake Hāwea water level and Hāwea River flow by year, updated daily from Otago Regional Council data.">
 <style>
   :root {
     color-scheme: light;
@@ -84,53 +84,69 @@
   .decade { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin-bottom: 6px; }
   .decade .label { width: 52px; color: var(--text-muted); font-size: 13px; font-variant-numeric: tabular-nums; }
   .decade button { padding: 2px 8px; min-height: 28px; font-variant-numeric: tabular-nums; }
-  .chart { width: 100%; height: 460px; }
-  #timeline { height: 360px; }
+  .chart { width: 100%; height: 440px; }
+  h3 { font-size: 15px; margin: 18px 0 2px; }
+  .chart.flow { height: 360px; }
+  .timeline { height: 340px; }
   footer { color: var(--text-muted); font-size: 13px; }
   footer a, .card a { color: inherit; }
   .status { color: var(--text-secondary); padding: 40px 0; text-align: center; }
-  @media (max-width: 600px) { .chart { height: 380px; } #timeline { height: 300px; } h1 { font-size: 22px; } }
+  @media (max-width: 600px) { .chart { height: 380px; } .timeline { height: 300px; } .chart.flow { height: 320px; } h1 { font-size: 22px; } }
 </style>
 </head>
 <body>
 <main>
-  <h1>Lake Hāwea water level</h1>
-  <p class="sub">Compare the lake's level year by year. Updated daily from Otago Regional Council data.</p>
+  <h1>Lake Hāwea level and river flow</h1>
+  <p class="sub">Compare the lake level and the Hāwea River flow year by year. Updated daily from Otago Regional Council data.</p>
 
   <div class="tiles" id="tiles"></div>
 
   <section class="card">
-    <h2>Level through the year</h2>
-    <p class="note">Each line is one year, plotted January to December. Older years are lighter. <span style="color:var(--current);font-weight:650">This year</span> is in orange. Pick years below; hover the chart to compare values on a date.</p>
+    <h2>Through the year</h2>
+    <p class="note">Each line is one year, plotted January to December. Older years are lighter. <span style="color:var(--current);font-weight:650">This year</span> is in orange. The year picker drives both charts; hover a chart to compare values on a date.</p>
     <div class="presets" id="presets"></div>
     <details class="years" id="yearsBox">
       <summary>Choose individual years</summary>
       <div id="decades"></div>
     </details>
+    <h3>Lake level</h3>
     <div id="seasonal" class="chart"><div class="status">Loading data…</div></div>
+    <h3>Hāwea River flow below the dam</h3>
+    <p class="note">Measured at Camphill Bridge. Flow records start in 1968. Dashed lines mark the consented controlled outflow of 10 to 200 m³/s (60 m³/s maximum from September to January). Floods can exceed this.</p>
+    <div id="seasonalFlow" class="chart flow"></div>
   </section>
 
   <section class="card">
-    <h2>Full record since 1930</h2>
-    <p class="note">The whole history in one line. Drag the slider below the chart to zoom into a period. The jump around 1960 is the Hāwea control dam raising the lake. Some early years have gaps.</p>
-    <div id="timeline" class="chart"></div>
+    <h2>Full record</h2>
+    <p class="note">The whole history. Drag the slider below each chart to zoom into a period. The jump in lake level around 1960 is the Hāwea control dam raising the lake. Some early years have gaps.</p>
+    <h3>Lake level since 1930</h3>
+    <div id="timeline" class="chart timeline"></div>
+    <h3>River flow since 1968</h3>
+    <div id="timelineFlow" class="chart timeline"></div>
   </section>
 
   <footer>
-    <p>Data: <a href="https://envdata.orc.govt.nz/AQWebPortal/Data/Location/Dashboard/480/Location/EM507/Interval/Latest">Otago Regional Council, site EM507 Lake Hāwea at Dam</a>, daily averages of provisional telemetry. The dashed lines mark the consented operating range of 338.0 to 346.0 m above sea level. ORC and the data providers give no warranty for this data. <a href="data/hawea_daily.csv" download>Download the data (CSV)</a>. <span id="updated"></span></p>
+    <p>Data: Otago Regional Council, sites <a href="https://envdata.orc.govt.nz/AQWebPortal/Data/Location/Dashboard/480/Location/EM507/Interval/Latest">EM507 Lake Hāwea at Dam</a> and EM218 Hāwea at Camphill Bridge. Values are daily averages of provisional telemetry. ORC and the data providers give no warranty for this data. Download the data: <a href="data/hawea_daily.csv" download>lake level (CSV)</a>, <a href="data/hawea_flow_daily.csv" download>river flow (CSV)</a>. <span id="updated"></span></p>
   </footer>
 </main>
 
 <script src="plotly-2.35.2.min.js"></script>
 <script>
 (function () {
-  const MIN_OP = 338.0, MAX_OP = 346.0;
   const css = (n) => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
   const fmtDate = (d) => new Date(d + "T12:00:00").toLocaleDateString("en-NZ", { day: "numeric", month: "short", year: "numeric" });
-  const fmtM = (v) => v.toFixed(2) + " m";
-  const signed = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + " m";
+  const shift = (d, days) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + days); return t.toISOString().slice(0, 10); };
 
-  let byYear = {}, rows = [], years = [], thisYear, selected = new Set();
+  // One entry per measured series; both charts share the year selection.
+  const SERIES = {
+    level: { file: "data/hawea_daily.csv", unit: "m", dp: 2, axis: "Metres above sea level",
+      seasonal: "seasonal", timeline: "timeline",
+      refs: [[346.0, "Max operating 346.0 m"], [338.0, "Min operating 338.0 m"]] },
+    flow: { file: "data/hawea_flow_daily.csv", unit: "m³/s", dp: 0, axis: "Flow (m³/s)",
+      seasonal: "seasonalFlow", timeline: "timelineFlow",
+      refs: [[200, "Consented max 200 m³/s"], [10, "Consented min 10 m³/s"]] },
+  };
+  let years = [], thisYear, selected = new Set();
 
   function mix(a, b, t) {
     const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
@@ -138,29 +154,32 @@
     return "#" + x.map((c, i) => Math.round(c + (y[i] - c) * t).toString(16).padStart(2, "0")).join("");
   }
 
-  function load() {
-    return fetch("data/hawea_daily.csv", { cache: "no-cache" })
-      .then((r) => { if (!r.ok) throw new Error(r.status); return r.text(); })
+  function loadSeries(s) {
+    return fetch(s.file, { cache: "no-cache" })
+      .then((r) => { if (!r.ok) throw new Error(s.file + " " + r.status); return r.text(); })
       .then((txt) => {
-        rows = txt.trim().split("\n").slice(1).map((l) => { const [d, v] = l.split(","); return { d, v: +v }; });
-        rows.forEach((r) => { const y = +r.d.slice(0, 4); (byYear[y] = byYear[y] || []).push(r); });
-        years = Object.keys(byYear).map(Number).sort((a, b) => a - b);
-        thisYear = years[years.length - 1];
+        s.rows = txt.trim().split("\n").slice(1).map((l) => { const [d, v] = l.split(","); return { d, v: +v }; }).filter((r) => !isNaN(r.v));
+        s.byYear = {};
+        s.rows.forEach((r) => { const y = +r.d.slice(0, 4); (s.byYear[y] = s.byYear[y] || []).push(r); });
+        s.lookup = Object.fromEntries(s.rows.map((r) => [r.d, r.v]));
       });
   }
 
   function tiles() {
-    const last = rows[rows.length - 1];
-    const lookup = Object.fromEntries(rows.map((r) => [r.d, r.v]));
-    const shift = (d, days) => { const t = new Date(d + "T12:00:00Z"); t.setUTCDate(t.getUTCDate() + days); return t.toISOString().slice(0, 10); };
-    const wk = lookup[shift(last.d, -7)];
-    const ly = lookup[(+last.d.slice(0, 4) - 1) + last.d.slice(4)];
-    const toMin = last.v - MIN_OP, toMax = MAX_OP - last.v;
+    const L = SERIES.level, F = SERIES.flow;
+    const last = L.rows[L.rows.length - 1];
+    const m = (v) => v.toFixed(2) + " m";
+    const signed = (v) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + " m";
+    const wk = L.lookup[shift(last.d, -7)];
+    const ly = L.lookup[(+last.d.slice(0, 4) - 1) + last.d.slice(4)];
+    const lastF = F.rows[F.rows.length - 1];
+    const lyF = F.lookup[(+lastF.d.slice(0, 4) - 1) + lastF.d.slice(4)];
     const t = [
-      ["Latest daily level", fmtM(last.v), fmtDate(last.d)],
+      ["Latest daily level", m(last.v), fmtDate(last.d)],
       ["Change over 7 days", wk != null ? signed(last.v - wk) : "–", "since " + fmtDate(shift(last.d, -7))],
-      ["Same day last year", ly != null ? fmtM(ly) : "–", ly != null ? signed(last.v - ly) + " this year vs last" : ""],
-      ["Room in operating range", fmtM(toMin) + " above min", fmtM(toMax) + " below max"],
+      ["Same day last year", ly != null ? m(ly) : "–", ly != null ? signed(last.v - ly) + " this year vs last" : ""],
+      ["Room in operating range", m(last.v - 338.0) + " above min", m(346.0 - last.v) + " below max"],
+      ["River flow below dam", Math.round(lastF.v) + " m³/s", fmtDate(lastF.d) + (lyF != null ? ", " + Math.round(lyF) + " m³/s a year ago" : "")],
     ];
     document.getElementById("tiles").innerHTML = t.map(([k, v, n]) =>
       `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
@@ -188,8 +207,7 @@
     p.appendChild(clear);
 
     const box = document.getElementById("decades");
-    const decades = [...new Set(years.map((y) => Math.floor(y / 10) * 10))];
-    decades.forEach((dec) => {
+    [...new Set(years.map((y) => Math.floor(y / 10) * 10))].forEach((dec) => {
       const row = document.createElement("div"); row.className = "decade";
       row.innerHTML = `<span class="label">${dec}s</span>`;
       years.filter((y) => Math.floor(y / 10) * 10 === dec).forEach((y) => {
@@ -212,17 +230,17 @@
 
   function axisStyle() {
     return { gridcolor: css("--grid"), linecolor: css("--border"), zeroline: false,
-      tickfont: { color: css("--text-secondary"), size: 12 }, title: { font: { color: css("--text-secondary"), size: 13 } } };
+      tickfont: { color: css("--text-secondary"), size: 12 } };
   }
+  const yTitle = (t) => ({ text: t, font: { color: css("--text-secondary"), size: 13 } });
 
-  function refLines(x0, x1) {
-    return [MIN_OP, MAX_OP].map((y) => ({ type: "line", xref: "paper", x0: 0, x1: 1, y0: y, y1: y,
-      line: { color: css("--ref"), width: 1, dash: "dash" }, layer: "below" }));
-  }
-  function refLabels() {
-    return [[MAX_OP, "Max operating 346.0 m"], [MIN_OP, "Min operating 338.0 m"]].map(([y, t]) => ({
-      xref: "paper", x: 0.005, xanchor: "left", y, yanchor: "bottom", text: t, showarrow: false,
-      font: { size: 11, color: css("--text-muted") } }));
+  function refs(s) {
+    return {
+      shapes: s.refs.map(([y]) => ({ type: "line", xref: "paper", x0: 0, x1: 1, y0: y, y1: y,
+        line: { color: css("--ref"), width: 1, dash: "dash" }, layer: "below" })),
+      annotations: s.refs.map(([y, t]) => ({ xref: "paper", x: 0.005, xanchor: "left", y, yanchor: "bottom",
+        text: t, showarrow: false, font: { size: 11, color: css("--text-muted") } })),
+    };
   }
 
   const baseLayout = () => ({
@@ -233,61 +251,71 @@
   });
   const config = { responsive: true, displaylogo: false, modeBarButtonsToRemove: ["lasso2d", "select2d", "autoScale2d"] };
 
-  function render() {
-    syncControls();
-    const sel = years.filter((y) => selected.has(y));
+  function yearTrace(s, y, color, width) {
+    const pts = s.byYear[y].filter((r) => r.d.slice(5) !== "02-29");
+    return { type: "scattergl", mode: "lines", name: String(y),
+      x: pts.map((r) => "2000" + r.d.slice(4)), y: pts.map((r) => r.v),
+      line: { color, width }, connectgaps: false,
+      hovertemplate: `${y}: %{y:.${s.dp}f} ${s.unit}<extra></extra>` };
+  }
+
+  function renderSeasonal(s) {
+    const sel = years.filter((y) => selected.has(y) && s.byYear[y]);
     const past = sel.filter((y) => y !== thisYear);
-    const traces = [];
-    past.forEach((y, i) => {
-      const t = past.length > 1 ? i / (past.length - 1) : 1;
-      traces.push(yearTrace(y, mix(css("--ramp-old"), css("--ramp-new"), t), 1.5));
-    });
-    if (selected.has(thisYear)) traces.push(yearTrace(thisYear, css("--current"), 3));
+    const traces = past.map((y, i) =>
+      yearTrace(s, y, mix(css("--ramp-old"), css("--ramp-new"), past.length > 1 ? i / (past.length - 1) : 1), 1.5));
+    if (sel.includes(thisYear)) traces.push(yearTrace(s, thisYear, css("--current"), 3));
+    const r = refs(s);
     const layout = Object.assign(baseLayout(), {
-      xaxis: Object.assign(axisStyle(), { type: "date", tickformat: "%b", dtick: window.innerWidth < 600 ? "M2" : "M1", tickangle: 0, range: ["2000-01-01", "2000-12-31"], hoverformat: "%-d %b" }),
-      yaxis: Object.assign(axisStyle(), { title: { text: "Metres above sea level", font: { color: css("--text-secondary"), size: 13 } }, ticksuffix: "" }),
-      shapes: refLines(), annotations: refLabels(),
+      xaxis: Object.assign(axisStyle(), { type: "date", tickformat: "%b", dtick: window.innerWidth < 600 ? "M2" : "M1", tickangle: 0,
+        range: ["2000-01-01", "2000-12-31"], hoverformat: "%-d %b" }),
+      yaxis: Object.assign(axisStyle(), { title: yTitle(s.axis), rangemode: s === SERIES.flow ? "tozero" : "normal" }),
+      shapes: r.shapes, annotations: r.annotations,
       hovermode: sel.length > 12 ? "closest" : "x unified",
       showlegend: sel.length > 0 && sel.length <= 20,
       legend: { orientation: "h", y: -0.12, font: { color: css("--text-secondary"), size: 12 } },
     });
     if (layout.showlegend) layout.margin.b = 70;
     if (!sel.length) layout.annotations.push({ xref: "paper", yref: "paper", x: 0.5, y: 0.5, showarrow: false,
-      text: "No years selected. Pick a preset or individual years above.", font: { color: css("--text-secondary"), size: 14 } });
-    Plotly.react("seasonal", traces, layout, config);
+      text: selected.size ? "No data for the selected years." : "No years selected. Pick a preset or individual years above.",
+      font: { color: css("--text-secondary"), size: 14 } });
+    Plotly.react(s.seasonal, traces, layout, config);
   }
 
-  function yearTrace(y, color, width) {
-    const pts = byYear[y].filter((r) => r.d.slice(5) !== "02-29");
-    return { type: "scattergl", mode: "lines", name: String(y),
-      x: pts.map((r) => "2000" + r.d.slice(4)), y: pts.map((r) => r.v),
-      line: { color, width }, connectgaps: false,
-      hovertemplate: `${y}: %{y:.2f} m<extra></extra>` };
-  }
-
-  function renderTimeline() {
+  function renderTimeline(s) {
+    const r = refs(s);
     const layout = Object.assign(baseLayout(), {
       xaxis: Object.assign(axisStyle(), { type: "date", rangeslider: { visible: true, bgcolor: css("--surface-0"), bordercolor: css("--border"), thickness: 0.08 } }),
-      yaxis: Object.assign(axisStyle(), { title: { text: "Metres above sea level", font: { color: css("--text-secondary"), size: 13 } }, fixedrange: false }),
-      shapes: refLines(), annotations: refLabels(), hovermode: "x",
+      yaxis: Object.assign(axisStyle(), { title: yTitle(s.axis), rangemode: s === SERIES.flow ? "tozero" : "normal" }),
+      shapes: r.shapes, annotations: r.annotations, hovermode: "x",
     });
-    Plotly.react("timeline", [{ type: "scatter", mode: "lines", name: "Daily level",
-      x: rows.map((r) => r.d), y: rows.map((r) => r.v), line: { color: css("--chip-on-bg"), width: 1.5 },
-      hovertemplate: "%{x|%-d %b %Y}: %{y:.2f} m<extra></extra>" }], layout, config);
+    Plotly.react(s.timeline, [{ type: "scatter", mode: "lines", name: s.axis,
+      x: s.rows.map((r) => r.d), y: s.rows.map((r) => r.v), line: { color: css("--chip-on-bg"), width: 1.2 },
+      hovertemplate: `%{x|%-d %b %Y}: %{y:.${s.dp}f} ${s.unit}<extra></extra>` }], layout, config);
+  }
+
+  function render() {
+    syncControls();
+    Object.values(SERIES).forEach(renderSeasonal);
+  }
+  function renderAll() {
+    render();
+    Object.values(SERIES).forEach(renderTimeline);
   }
 
   if (typeof Plotly === "undefined") {
     document.getElementById("seasonal").innerHTML = '<div class="status">The chart library didn\'t load. Please refresh the page.</div>';
     return;
   }
-  load().then(() => {
+  Promise.all(Object.values(SERIES).map(loadSeries)).then(() => {
+    years = Object.keys(SERIES.level.byYear).map(Number).sort((a, b) => a - b);
+    thisYear = years[years.length - 1];
     tiles();
     buildControls();
     selected = new Set(presets[0][1]());
     document.getElementById("seasonal").innerHTML = "";
-    render();
-    renderTimeline();
-    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", () => { render(); renderTimeline(); });
+    renderAll();
+    window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", renderAll);
   }).catch((e) => {
     document.getElementById("seasonal").innerHTML = `<div class="status">Couldn't load the data (${e.message}).</div>`;
   });

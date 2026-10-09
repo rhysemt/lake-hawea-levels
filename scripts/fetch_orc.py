@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
-"""Fetch Lake Hāwea level (ORC site EM507) and maintain data/hawea_daily.csv.
+"""Fetch Lake Hāwea level and Hāwea River flow from ORC and maintain daily CSVs.
 
 The ORC AQUARIUS WebPortal serves chart data as JSON from /Data/Dataset_Chart,
 thinned to ~2000 points per request. One calendar year per request gives roughly
 five points a day, which we average into one value per NZ date.
 
 Usage:
-  fetch_orc.py              # refresh the current and previous year
-  fetch_orc.py --backfill   # rebuild from the start of the record (1930)
+  fetch_orc.py              # refresh the current and previous year; backfill any missing file
+  fetch_orc.py --backfill   # rebuild every series from the start of its record
 """
 import argparse
 import csv
@@ -21,9 +21,14 @@ import urllib.request
 from collections import defaultdict
 
 BASE = "https://envdata.orc.govt.nz/AQWebPortal"
-DATASET_ID = "252849"  # Lake Level.Telemetry@EM507 (Lake Hawea at Dam)
-FIRST_YEAR = 1930
-OUT = os.path.join(os.path.dirname(__file__), "..", "data", "hawea_daily.csv")
+DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+# name: (dataset id, first year, output file, value column)
+SERIES = {
+    # Lake Level.Telemetry@EM507, Lake Hawea at Dam
+    "level": ("252849", 1930, "hawea_daily.csv", "level_m"),
+    # Discharge.Hydrotel.NIWA@EM218, Hawea River at Camphill Bridge
+    "flow": ("148023", 1968, "hawea_flow_daily.csv", "flow_m3s"),
+}
 HEADERS = {
     "User-Agent": "lake-hawea-levels (https://github.com/rhysemt/lake-hawea-levels)",
     "Cookie": "disclaimer=accepted",
@@ -31,10 +36,10 @@ HEADERS = {
 }
 
 
-def fetch_year(year):
+def fetch_year(dataset_id, year):
     """Return {date: [values]} for one calendar year (NZST)."""
     body = urllib.parse.urlencode({
-        "dataset": DATASET_ID,
+        "dataset": dataset_id,
         "interval": "Custom",
         "date": f"{year}-01-01",
         "endDate": f"{year + 1}-01-01",
@@ -64,20 +69,39 @@ def fetch_year(year):
     return days
 
 
-def load(path):
+def load(path, col):
     if not os.path.exists(path):
         return {}
     with open(path, newline="") as f:
-        return {r["date"]: r["level_m"] for r in csv.DictReader(f)}
+        return {r["date"]: r[col] for r in csv.DictReader(f)}
 
 
-def save(path, rows):
+def save(path, col, rows):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     with open(path, "w", newline="") as f:
         w = csv.writer(f)
-        w.writerow(["date", "level_m"])
+        w.writerow(["date", col])
         for d in sorted(rows):
             w.writerow([d, rows[d]])
+
+
+def update(name, backfill, now):
+    dataset_id, first_year, filename, col = SERIES[name]
+    path = os.path.join(DATA_DIR, filename)
+    backfill = backfill or not os.path.exists(path)
+    years = range(first_year, now.year + 1) if backfill else range(now.year - 1, now.year + 1)
+    rows = {} if backfill else load(path, col)
+    for y in years:
+        days = fetch_year(dataset_id, y)
+        for d, vals in days.items():
+            rows[d] = f"{sum(vals) / len(vals):.3f}"
+        print(f"{name} {y}: {len(days)} days")
+        time.sleep(1)  # be polite to ORC
+    if not rows:
+        sys.exit(f"{name}: no data fetched")
+    save(path, col, rows)
+    last = max(rows)
+    print(f"{name}: saved {len(rows)} days, latest {last} = {rows[last]}")
 
 
 def main():
@@ -85,19 +109,8 @@ def main():
     ap.add_argument("--backfill", action="store_true")
     args = ap.parse_args()
     now = dt.datetime.now(dt.timezone(dt.timedelta(hours=12)))
-    years = range(FIRST_YEAR, now.year + 1) if args.backfill else range(now.year - 1, now.year + 1)
-    rows = {} if args.backfill else load(OUT)
-    for y in years:
-        days = fetch_year(y)
-        for d, vals in days.items():
-            rows[d] = f"{sum(vals) / len(vals):.3f}"
-        print(f"{y}: {len(days)} days")
-        time.sleep(1)  # be polite to ORC
-    if not rows:
-        sys.exit("no data fetched")
-    save(OUT, rows)
-    last = max(rows)
-    print(f"saved {len(rows)} days, latest {last} = {rows[last]} m")
+    for name in SERIES:
+        update(name, args.backfill, now)
 
 
 if __name__ == "__main__":
