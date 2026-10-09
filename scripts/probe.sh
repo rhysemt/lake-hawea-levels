@@ -15,3 +15,4 @@ get "$B/Data/Location/Summary/Location/EM507/Interval/Latest" summary.html
 get "$B/Data/Location/Dashboard/480/Location/EM507/Interval/Latest" dash.html
 get "$B/Data/Location/EM507" loc.html
 cp jar jar.txt
+get "$B/bundles/aqPortal.js?v=dnptTFHSJzabrnoP9vs6HlE-wUk" portal.js
