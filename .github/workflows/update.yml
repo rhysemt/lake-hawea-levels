@@ -1,0 +1,61 @@
+name: Update data and publish site
+
+on:
+  schedule:
+    - cron: "15 18 * * *"   # daily, early morning NZ time
+  workflow_dispatch:
+    inputs:
+      backfill:
+        description: "Rebuild the full record from 1930"
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+    paths: [site/**, scripts/**, .github/workflows/update.yml]
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch ORC data
+        run: |
+          if [ "${{ inputs.backfill }}" = "true" ] || [ ! -f data/hawea_daily.csv ]; then
+            python3 scripts/fetch_orc.py --backfill
+          else
+            python3 scripts/fetch_orc.py
+          fi
+
+      - name: Commit data if changed
+        run: |
+          git add data/hawea_daily.csv
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git -c user.name="github-actions[bot]" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -m "Update lake level data"
+          git push
+
+      - name: Assemble site
+        run: |
+          mkdir -p _site/data
+          cp -r site/. _site/
+          cp data/hawea_daily.csv _site/data/
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deploy
+        uses: actions/deploy-pages@v4
