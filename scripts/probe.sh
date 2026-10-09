@@ -1,18 +1,17 @@
 #!/usr/bin/env bash
-# One-off probe of ORC AQUARIUS WebPortal from a GitHub runner; outputs land in probe/.
+# One-off probe of ORC AQUARIUS WebPortal export from a GitHub runner; outputs land in probe/.
 set -u
 B=https://envdata.orc.govt.nz/AQWebPortal
 mkdir -p probe && cd probe
 UA='Mozilla/5.0 lake-hawea-levels'
-C="curl -sS -L -m 90 -A $UA -c jar -b jar"
-get() { echo "=== $1" >> log.txt; curl -sS -L -m 90 -A "$UA" -c jar -b jar -o "$2" -w 'HTTP %{http_code} %{size_download}B %{content_type} -> %{url_effective}\n' "$1" >> log.txt 2>&1; }
-get "$B/Disclaimer" disc.html
-TOK=$(grep -oE '__RequestVerificationToken" type="hidden" value="[^"]+' disc.html | sed 's/.*value="//')
-R=/AQWebPortal/Data/Location/Summary/Location/EM507/Interval/Latest
-curl -sS -m 60 -A "$UA" -c jar -b jar -o accept.html -D accept.hdr -w 'ACCEPT HTTP %{http_code}\n' \
-  --data-urlencode "returnUrl=$R" --data-urlencode "__RequestVerificationToken=$TOK" "$B/AcceptDisclaimer" >> log.txt 2>&1
-get "$B/Data/Location/Summary/Location/EM507/Interval/Latest" summary.html
-get "$B/Data/Location/Dashboard/480/Location/EM507/Interval/Latest" dash.html
-get "$B/Data/Location/EM507" loc.html
-cp jar jar.txt
-get "$B/bundles/dataControl.js?v=vhHL8sKkELio3tsFNY5dwPEIUHw" dc.js
+CK='disclaimer=accepted'
+for loc in EM507 278; do
+  for dr in Days7 EntirePeriodOfRecord; do
+    q="Location=$loc&DateRange=$dr&ExportFormat=csv"
+    tok=$(curl -sS -m 60 -A "$UA" -b "$CK" -X POST -H 'Content-Length: 0' "$B/Export/LocationToken?$q")
+    echo "loc=$loc dr=$dr token-resp=${tok:0:200}" >> log.txt
+    t=$(echo "$tok" | python3 -c 'import sys,json;print(json.load(sys.stdin)["Token"])' 2>/dev/null)
+    curl -sS -L -m 300 -A "$UA" -b "$CK" -o "loc_${loc}_$dr.out" -w "HTTP %{http_code} %{size_download}B %{content_type}\n" --get --data-urlencode "Token=$t" "$B/Export/Location?$q" >> log.txt 2>&1
+    file "loc_${loc}_$dr.out" >> log.txt
+  done
+done
