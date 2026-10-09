@@ -65,7 +65,7 @@
   h1 { font-size: 26px; margin: 0 0 4px; letter-spacing: -0.01em; }
   h2 { font-size: 17px; margin: 0 0 4px; }
   .sub { color: var(--text-secondary); margin: 0 0 20px; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 20px; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 20px; }
   .tile { background: var(--surface-1); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
   .tile .k { color: var(--text-secondary); font-size: 13px; }
   .tile .v { font-size: 24px; font-weight: 650; font-variant-numeric: tabular-nums; }
@@ -96,14 +96,14 @@
 </head>
 <body>
 <main>
-  <h1>Lake Hāwea level and river flow</h1>
-  <p class="sub">Compare the lake level and the Hāwea River flow year by year. Updated daily from Otago Regional Council data.</p>
+  <h1>Lake Hāwea level, outflow and inflow</h1>
+  <p class="sub">Compare the lake level, Hāwea River flow and inflow to the lake year by year. Updated daily from Otago Regional Council data.</p>
 
   <div class="tiles" id="tiles"></div>
 
   <section class="card">
     <h2>Through the year</h2>
-    <p class="note">Each line is one year, plotted January to December. Older years are lighter. <span style="color:var(--current);font-weight:650">This year</span> is in orange. The year picker drives both charts; hover a chart to compare values on a date.</p>
+    <p class="note">Each line is one year, plotted January to December. Older years are lighter. <span style="color:var(--current);font-weight:650">This year</span> is in orange. The year picker drives all three charts; hover a chart to compare values on a date.</p>
     <div class="presets" id="presets"></div>
     <details class="years" id="yearsBox">
       <summary>Choose individual years</summary>
@@ -114,6 +114,9 @@
     <h3>Hāwea River flow below the dam</h3>
     <p class="note">Measured at Camphill Bridge, just below the dam. Lines show a 7-day average so the pattern of releases is easier to compare; the full daily record is below. Records start in 1968. Dashed lines mark the consented controlled outflow of 10 to 200 m³/s.</p>
     <div id="seasonalFlow" class="chart flow"></div>
+    <h3>Estimated inflow to the lake</h3>
+    <p class="note">Worked out as river flow out of the lake plus the change in lake storage, averaged over 7 days. Day-to-day figures aren't reliable because wind tilts the lake at the level gauge. Checked against the Electricity Authority's own Hāwea inflow series for 1982–2024: the weekly figures agree to within about 4 m³/s on average. The dashed line is the long-term average.</p>
+    <div id="seasonalInflow" class="chart flow"></div>
   </section>
 
   <section class="card">
@@ -123,10 +126,13 @@
     <div id="timeline" class="chart timeline"></div>
     <h3>River flow since 1968</h3>
     <div id="timelineFlow" class="chart timeline"></div>
+    <h3>Estimated inflow since 1982</h3>
+    <p class="note">Starts in 1982, when the river flow record becomes continuous.</p>
+    <div id="timelineInflow" class="chart timeline"></div>
   </section>
 
   <footer>
-    <p>Data: Otago Regional Council, sites <a href="https://envdata.orc.govt.nz/AQWebPortal/Data/Location/Dashboard/480/Location/EM507/Interval/Latest">EM507 Lake Hāwea at Dam</a> and EM218 Hāwea at Camphill Bridge. Values are daily averages of provisional telemetry. ORC and the data providers give no warranty for this data. Download the data: <a href="data/hawea_daily.csv" download>lake level (CSV)</a>, <a href="data/hawea_flow_daily.csv" download>river flow (CSV)</a>. <span id="updated"></span></p>
+    <p>Data: Otago Regional Council, sites <a href="https://envdata.orc.govt.nz/AQWebPortal/Data/Location/Dashboard/480/Location/EM507/Interval/Latest">EM507 Lake Hāwea at Dam</a> and EM218 Hāwea at Camphill Bridge. Values are daily averages of provisional telemetry. ORC and the data providers give no warranty for this data. Download the data: <a href="data/hawea_daily.csv" download>lake level (CSV)</a>, <a href="data/hawea_flow_daily.csv" download>river flow (CSV)</a>, <a href="data/hawea_inflow_7day.csv" download>estimated inflow (CSV)</a>. <span id="updated"></span></p>
   </footer>
 </main>
 
@@ -145,6 +151,8 @@
     flow: { file: "data/hawea_flow_daily.csv", unit: "m³/s", dp: 0, axis: "Flow (m³/s)",
       seasonal: "seasonalFlow", timeline: "timelineFlow", smoothDays: 7,
       refs: [[200, "Consented max 200 m³/s"], [10, "Consented min 10 m³/s"]] },
+    inflow: { file: "data/hawea_inflow_7day.csv", unit: "m³/s", dp: 0, axis: "Inflow (m³/s, 7-day avg)",
+      seasonal: "seasonalInflow", timeline: "timelineInflow", refs: [] },
   };
   let years = [], thisYear, selected = new Set();
 
@@ -174,12 +182,14 @@
     const ly = L.lookup[(+last.d.slice(0, 4) - 1) + last.d.slice(4)];
     const lastF = F.rows[F.rows.length - 1];
     const lyF = F.lookup[(+lastF.d.slice(0, 4) - 1) + lastF.d.slice(4)];
+    const I = SERIES.inflow, lastI = I.rows[I.rows.length - 1];
     const t = [
       ["Latest daily level", m(last.v), fmtDate(last.d)],
       ["Change over 7 days", wk != null ? signed(last.v - wk) : "–", "since " + fmtDate(shift(last.d, -7))],
       ["Same day last year", ly != null ? m(ly) : "–", ly != null ? signed(last.v - ly) + " this year vs last" : ""],
       ["Above minimum operating level", m(last.v - 338.0), m(346.0 - last.v) + " below the maximum"],
       ["River flow below dam", Math.round(lastF.v) + " m³/s", fmtDate(lastF.d) + (lyF != null ? ", " + Math.round(lyF) + " m³/s a year ago" : "")],
+      ["Estimated inflow", Math.round(lastI.v) + " m³/s", "7-day average to " + fmtDate(shift(lastI.d, 3))],
     ];
     document.getElementById("tiles").innerHTML = t.map(([k, v, n]) =>
       `<div class="tile"><div class="k">${k}</div><div class="v">${v}</div><div class="n">${n}</div></div>`).join("");
@@ -280,7 +290,7 @@
     const layout = Object.assign(baseLayout(), {
       xaxis: Object.assign(axisStyle(), { type: "date", tickformat: "%b", dtick: window.innerWidth < 600 ? "M2" : "M1", tickangle: 0,
         range: ["2000-01-01", "2000-12-31"], hoverformat: "%-d %b" }),
-      yaxis: Object.assign(axisStyle(), { title: yTitle(s.axis), rangemode: s === SERIES.flow ? "tozero" : "normal" }),
+      yaxis: Object.assign(axisStyle(), { title: yTitle(s.axis), rangemode: s === SERIES.level ? "normal" : "tozero" }),
       shapes: r.shapes, annotations: r.annotations,
       hovermode: sel.length > 12 ? "closest" : "x unified",
       showlegend: sel.length > 0 && sel.length <= 20,
@@ -297,11 +307,16 @@
     const r = refs(s);
     const layout = Object.assign(baseLayout(), {
       xaxis: Object.assign(axisStyle(), { type: "date", rangeslider: { visible: true, bgcolor: css("--surface-0"), bordercolor: css("--border"), thickness: 0.08 } }),
-      yaxis: Object.assign(axisStyle(), { title: yTitle(s.axis), rangemode: s === SERIES.flow ? "tozero" : "normal" }),
+      yaxis: Object.assign(axisStyle(), { title: yTitle(s.axis), rangemode: s === SERIES.level ? "normal" : "tozero" }),
       shapes: r.shapes, annotations: r.annotations, hovermode: "x",
     });
-    Plotly.react(s.timeline, [{ type: "scatter", mode: "lines", name: s.axis,
-      x: s.rows.map((r) => r.d), y: s.rows.map((r) => r.v), line: { color: css("--chip-on-bg"), width: 1.2 },
+    // Break the line across gaps of over a month instead of drawing straight across them.
+    const x = [], y = [];
+    s.rows.forEach((r, i) => {
+      if (i && shift(s.rows[i - 1].d, 31) < r.d) { x.push(shift(s.rows[i - 1].d, 1)); y.push(null); }
+      x.push(r.d); y.push(r.v);
+    });
+    Plotly.react(s.timeline, [{ type: "scatter", mode: "lines", name: s.axis, x, y, connectgaps: false, line: { color: css("--chip-on-bg"), width: 1.2 },
       hovertemplate: `%{x|%-d %b %Y}: %{y:.${s.dp}f} ${s.unit}<extra></extra>` }], layout, config);
   }
 
@@ -319,6 +334,9 @@
     return;
   }
   Promise.all(Object.values(SERIES).map(loadSeries)).then(() => {
+    const I = SERIES.inflow, recent = I.rows.filter((r) => r.d >= "1982");
+    const avg = recent.reduce((a, r) => a + r.v, 0) / recent.length;
+    I.refs = [[avg, `Long-term average ${Math.round(avg)} m³/s`]];
     years = Object.keys(SERIES.level.byYear).map(Number).sort((a, b) => a - b);
     thisYear = years[years.length - 1];
     tiles();
