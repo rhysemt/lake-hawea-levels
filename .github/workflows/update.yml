@@ -29,7 +29,11 @@ jobs:
       name: github-pages
       url: ${{ steps.deploy.outputs.page_url }}
     steps:
+      # Check out the branch tip, not the run's original commit, so that
+      # "Re-run" works after an earlier attempt already pushed a data commit.
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
 
       - name: Fetch ORC data
         run: python3 scripts/fetch_orc.py ${{ inputs.backfill && '--backfill' || '' }}
@@ -52,5 +56,19 @@ jobs:
         with:
           path: _site
 
-      - id: deploy
+      # Pages deploys occasionally fail with a transient 502; retry once.
+      - id: deploy_first
         uses: actions/deploy-pages@v4
+        continue-on-error: true
+
+      - name: Wait before retrying deploy
+        if: steps.deploy_first.outcome == 'failure'
+        run: sleep 60
+
+      - id: deploy_retry
+        if: steps.deploy_first.outcome == 'failure'
+        uses: actions/deploy-pages@v4
+
+      - id: deploy
+        name: Record page URL
+        run: echo "page_url=${{ steps.deploy_first.outputs.page_url || steps.deploy_retry.outputs.page_url }}" >> "$GITHUB_OUTPUT"
